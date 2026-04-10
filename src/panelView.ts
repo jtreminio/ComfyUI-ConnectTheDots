@@ -1,3 +1,5 @@
+import html from "html-template-tag";
+
 import {
     collectInputCandidates,
     collectOutputCandidates,
@@ -27,21 +29,12 @@ interface CandidateButtonOptions {
     callbacks: types.PanelViewCallbacks;
 }
 
-const escapeHtml = (value: unknown): string => {
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-};
-
 const buildCandidateRow = (label: string, value: string, tone = ""): string => {
-    const toneAttribute = tone ? ` data-tone="${escapeHtml(tone)}"` : "";
-    return `
+    const toneAttribute = tone ? html` data-tone="${tone}"` : "";
+    return html`
         <span class="ctd-candidate-row">
-            <span class="ctd-candidate-label">${escapeHtml(label)}</span>
-            <span class="ctd-candidate-value"${toneAttribute}>${escapeHtml(value)}</span>
+            <span class="ctd-candidate-label">${label}</span>
+            <span class="ctd-candidate-value"${toneAttribute}>${value}</span>
         </span>
     `;
 };
@@ -148,22 +141,23 @@ const createPropertyCard = (
             )
             .filter((label): label is string => Boolean(label));
 
+        const targetsLength = `${currentTargets.length} target${currentTargets.length === 1 ? "" : "s"}`;
         stateLines.push(
             currentTargets.length
-                ? `Currently connected to ${currentTargets.length} target${currentTargets.length === 1 ? "" : "s"}: ${currentTargets.join(", ")}`
+                ? `Currently connected to ${targetsLength}: ${currentTargets.join(", ")}`
                 : "Currently unconnected",
         );
     }
 
-    card.innerHTML = `
+    card.innerHTML = html`
         <div class="ctd-slot-head">
-            <span class="ctd-slot-name">${escapeHtml(property.name)}</span>
+            <span class="ctd-slot-name">${property.name}</span>
             <span class="ctd-slot-meta">
-                ${propertyPillText ? `<span class="ctd-connection-pill">${escapeHtml(propertyPillText)}</span>` : ""}
-                <span class="ctd-slot-type">${escapeHtml(typeName)}</span>
+                ${propertyPillText ? `<span class="ctd-connection-pill">${propertyPillText}</span>` : ""}
+                <span class="ctd-slot-type">${typeName}</span>
             </span>
         </div>
-        ${stateLines.length ? `<div class="ctd-slot-state">${escapeHtml(stateLines.join(" "))}</div>` : ""}
+        ${stateLines.length ? `<div class="ctd-slot-state">${stateLines.join(" ")}</div>` : ""}
     `;
 
     if (candidates.length) {
@@ -270,10 +264,13 @@ export const renderPanelView = ({
 
     const hero = document.createElement("div");
     hero.className = "ctd-hero";
-    hero.innerHTML = `
-        <div class="ctd-title">${escapeHtml(getNodeDisplayName(targetNode))}</div>
-        <div class="ctd-subtitle">${escapeHtml(targetNode.type || "unknown node type")}</div>
-        <div class="ctd-help">Hover any candidate property to jump the canvas there. Moving away or selecting it restores your original view. Keep connecting until you close the sidebar.</div>
+    hero.innerHTML = html`
+        <div class="ctd-title">${getNodeDisplayName(targetNode)}</div>
+        <div class="ctd-subtitle">${targetNode.type || "unknown node type"}</div>
+        <div class="ctd-help">
+            Hover any candidate property to jump the canvas there.
+            Moving away or selecting it restores your original view. Keep connecting until you close the sidebar.
+        </div>
     `;
     shell.append(hero);
 
