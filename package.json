@@ -1,21 +1,27 @@
 {
-  "name": "comfyui-connect-the-dots",
-  "version": "1.0.0",
-  "description": "ComfyUI extension. No more stupid scrolling across the entire graph and then scrolling back just to connect a VAE node.",
-  "main": "build/connectTheDots.js",
-  "type": "module",
-  "author": "Juan Treminio <jtreminio@gmail.com>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/jtreminio/ComfyUI-ConnectTheDots"
-  },
-  "scripts": {
-    "build": "npm run typecheck && node ./scripts/build.mjs",
-    "typecheck": "tsc --noEmit"
-  },
-  "devDependencies": {
-    "esbuild": "^0.28.0",
-    "typescript": "^6.0.2"
-  }
+    "name": "comfyui-connect-the-dots",
+    "version": "1.0.0",
+    "description": "ComfyUI extension. No more stupid scrolling across the entire graph and then scrolling back just to connect a VAE node.",
+    "main": "build/connectTheDots.js",
+    "type": "module",
+    "author": "Juan Treminio <jtreminio@gmail.com>",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/jtreminio/ComfyUI-ConnectTheDots"
+    },
+    "scripts": {
+        "build": "npm run check && node ./scripts/build.mjs",
+        "check": "npm run format:check && npm run lint && npm run typecheck",
+        "format": "biome format --write .",
+        "format:check": "biome format .",
+        "lint": "biome lint .",
+        "lint:fix": "biome lint --write .",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.4.11",
+        "esbuild": "^0.28.0",
+        "typescript": "^6.0.2"
+    }
 }

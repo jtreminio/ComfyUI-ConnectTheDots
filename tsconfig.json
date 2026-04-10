@@ -1,13 +1,13 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "lib": ["DOM", "ES2022"],
-    "allowJs": false,
-    "skipLibCheck": true,
-    "noEmit": true
-  },
-  "include": ["src/**/*.ts", "src/**/*.d.ts"]
+    "compilerOptions": {
+        "target": "ES2022",
+        "module": "ESNext",
+        "moduleResolution": "Bundler",
+        "strict": true,
+        "lib": ["DOM", "ES2022"],
+        "allowJs": false,
+        "skipLibCheck": true,
+        "noEmit": true
+    },
+    "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

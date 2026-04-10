@@ -37,3 +37,11 @@ Place this extension inside your `ComfyUI/custom_nodes` folder, then restart Com
 ## Summary
 
 ComfyUI-ConnectTheDots makes graph wiring easier, faster, and more readable, especially in larger ComfyUI projects.
+
+## Development
+
+- `npm run format` formats the project with Biome.
+- `npm run format:check` reports formatting drift without changing files.
+- `npm run lint` runs Biome lint checks.
+- `npm run lint:fix` applies Biome's safe lint fixes.
+- `npm run check` runs formatting, linting, and TypeScript checks together.
