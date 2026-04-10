@@ -5,6 +5,11 @@ const EXTENSION_NAME = "connect-the-dots";
 const MENU_LABEL = "Connect The Dots";
 const PANEL_ID = "connect-the-dots-panel";
 const STYLE_ID = "ctd-connect-the-dots-style";
+const PANEL_ROOT_CLASS = "ctd-panel";
+const PANEL_CONTENT_CLASS = "ctd-panel-content";
+const PANEL_MARGIN_PX = 16;
+const PANEL_MAX_WIDTH_PX = 420;
+const PANEL_COMPACT_BREAKPOINT_PX = 900;
 const PREVIEW_HORIZONTAL_RATIO = 0.5;
 const PREVIEW_VERTICAL_RATIO = 0.25;
 
@@ -98,7 +103,6 @@ interface CanvasLike {
     onDrawForeground?: (ctx: CanvasRenderingContext2D, visibleArea?: unknown) => void;
     __ctdDrawWrapped?: boolean;
     setDirty(foreground?: boolean, background?: boolean): void;
-    closePanels?(): void;
     createPanel(title: string, options: { closable: boolean }): PanelLike;
     centerOnNode?(node: GraphNode): void;
     setGraph?(graph: GraphLike): void;
@@ -131,6 +135,7 @@ interface PanelLike extends HTMLElement {
     __ctdStatus?: PanelStatus | null;
     __ctdConnectionWatcher?: number | null;
     __ctdConnectionSignature?: string;
+    __ctdHostObserver?: ResizeObserver | null;
 }
 
 declare const LiteGraph: {
@@ -140,10 +145,95 @@ declare const LiteGraph: {
 
 const comfyApp = app as unknown as AppLike;
 
+class ConnectTheDotsPanelAdapter {
+    public mount(panel: PanelLike): boolean {
+        const host = this.getHost();
+        if (!host) {
+            return false;
+        }
+
+        this.configurePanel(panel, host);
+        host.append(panel);
+        return true;
+    }
+
+    public disconnect(panel: PanelLike | null): void {
+        if (!panel?.__ctdHostObserver) {
+            return;
+        }
+
+        panel.__ctdHostObserver.disconnect();
+        panel.__ctdHostObserver = null;
+    }
+
+    private configurePanel(panel: PanelLike, host: HTMLElement): void {
+        panel.id = PANEL_ID;
+        panel.classList.add("settings", PANEL_ROOT_CLASS);
+        panel.content.classList.add(PANEL_CONTENT_CLASS);
+
+        if (panel.footer) {
+            panel.footer.style.setProperty("display", "none", "important");
+        }
+
+        const altContent = panel.querySelector<HTMLElement>(".dialog-alt-content");
+        if (altContent) {
+            altContent.style.setProperty("display", "none", "important");
+        }
+
+        this.disconnect(panel);
+        this.applyPlacement(panel, host);
+
+        if (typeof ResizeObserver !== "function") {
+            return;
+        }
+
+        const observer = new ResizeObserver(() => this.applyPlacement(panel, host));
+        observer.observe(host);
+        panel.__ctdHostObserver = observer;
+    }
+
+    private applyPlacement(panel: PanelLike, host: HTMLElement): void {
+        const isCompact = host.clientWidth < PANEL_COMPACT_BREAKPOINT_PX;
+        panel.style.position = "absolute";
+        panel.style.top = `${PANEL_MARGIN_PX}px`;
+        panel.style.right = `${PANEL_MARGIN_PX}px`;
+        panel.style.bottom = `${PANEL_MARGIN_PX}px`;
+        panel.style.left = isCompact ? `${PANEL_MARGIN_PX}px` : "auto";
+        panel.style.width = isCompact ? "auto" : `${PANEL_MAX_WIDTH_PX}px`;
+        panel.style.maxWidth = `calc(100% - ${PANEL_MARGIN_PX * 2}px)`;
+        panel.style.zIndex = "1300";
+        panel.style.display = "flex";
+        panel.style.flexDirection = "column";
+        panel.style.overflow = "hidden";
+        panel.style.pointerEvents = "auto";
+    }
+
+    private getHost(): HTMLElement | null {
+        const graphCanvasContainer = this.getGraphCanvasContainer();
+        const graphCanvasPanel = graphCanvasContainer?.querySelector<HTMLElement>(".graph-canvas-panel");
+        if (graphCanvasPanel) {
+            return graphCanvasPanel;
+        }
+
+        if (graphCanvasContainer) {
+            return graphCanvasContainer;
+        }
+
+        const host = comfyApp.canvas?.canvas?.parentElement;
+        return host instanceof HTMLElement ? host : null;
+    }
+
+    private getGraphCanvasContainer(): HTMLElement | null {
+        const container = document.getElementById("graph-canvas-container");
+        return container instanceof HTMLElement ? container : null;
+    }
+}
+
 class ConnectTheDotsExtension {
     private currentPanel: PanelLike | null = null;
     private previewNode: GraphNode | null = null;
     private sidebarTargetNode: GraphNode | null = null;
+    private readonly panelAdapter = new ConnectTheDotsPanelAdapter();
 
     public register(): void {
         comfyApp.registerExtension({
@@ -567,6 +657,7 @@ class ConnectTheDotsExtension {
         }
 
         this.stopPanelConnectionWatcher(panel);
+        this.panelAdapter.disconnect(panel);
 
         if (typeof panel.close === "function") {
             panel.close();
@@ -579,26 +670,6 @@ class ConnectTheDotsExtension {
 
     private setPanelStatus(panel: PanelLike, message: string | null, state = ""): void {
         panel.__ctdStatus = message ? { message, state } : null;
-    }
-
-    private getGraphCanvasContainer(): HTMLElement | null {
-        const container = document.getElementById("graph-canvas-container");
-        return container instanceof HTMLElement ? container : null;
-    }
-
-    private getPanelHost(): HTMLElement | null {
-        const graphCanvasContainer = this.getGraphCanvasContainer();
-        const graphCanvasPanel = graphCanvasContainer?.querySelector<HTMLElement>(".graph-canvas-panel");
-        if (graphCanvasPanel) {
-            return graphCanvasPanel;
-        }
-
-        if (graphCanvasContainer) {
-            return graphCanvasContainer;
-        }
-
-        const host = comfyApp.canvas?.canvas?.parentElement;
-        return host instanceof HTMLElement ? host : null;
     }
 
     private buildCandidateRow(label: string, value: string, tone = ""): string {
@@ -821,26 +892,15 @@ class ConnectTheDotsExtension {
         this.ensureStyles();
         this.endCandidatePreview(this.currentPanel);
         this.closePanel();
-        canvas.closePanels?.();
         this.setSidebarTargetNode(targetNode);
 
         const panel = canvas.createPanel(MENU_LABEL, { closable: true }) as PanelLike;
-        panel.id = PANEL_ID;
         panel.node = targetNode;
         panel.graph = canvas.graph;
-        panel.classList.add("settings");
-        panel.style.position = "absolute";
-        panel.style.top = "16px";
-        panel.style.right = "16px";
-        panel.style.bottom = "16px";
-        panel.style.left = "auto";
-
-        if (panel.footer?.style) {
-            panel.footer.style.display = "none";
-        }
 
         panel.onClose = () => {
             this.stopPanelConnectionWatcher(panel);
+            this.panelAdapter.disconnect(panel);
             this.endCandidatePreview(panel);
             this.setSidebarTargetNode(null);
             if (this.currentPanel === panel) {
@@ -848,11 +908,16 @@ class ConnectTheDotsExtension {
             }
         };
 
-        this.currentPanel = panel;
         this.renderPanel(panel, targetNode);
-        this.startPanelConnectionWatcher(panel, targetNode);
 
-        this.getPanelHost()?.append(panel);
+        if (!this.panelAdapter.mount(panel)) {
+            panel.onClose?.();
+            panel.remove();
+            return;
+        }
+
+        this.currentPanel = panel;
+        this.startPanelConnectionWatcher(panel, targetNode);
     }
 }
 
