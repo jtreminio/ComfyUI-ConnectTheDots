@@ -120,9 +120,6 @@ const createCandidateButton = ({
     button.addEventListener("mouseenter", () =>
         callbacks.onCandidatePreviewStart(selection),
     );
-    button.addEventListener("mouseleave", () =>
-        callbacks.onCandidatePreviewEnd(panel),
-    );
     button.addEventListener("click", () =>
         callbacks.onCandidateSelect(selection),
     );
@@ -141,6 +138,9 @@ const createPropertyCard = (
 ): HTMLDivElement => {
     const card = document.createElement("div");
     card.className = "ctd-slot-card";
+    card.addEventListener("mouseleave", () =>
+        callbacks.onCandidatePreviewEnd(panel),
+    );
 
     const stateLines: string[] = [];
     const candidateList = document.createElement("div");
