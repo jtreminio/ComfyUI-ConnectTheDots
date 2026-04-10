@@ -128,11 +128,14 @@ export interface CanvasLike {
     graph?: GraphLike | null;
     canvas?: HTMLCanvasElement | null;
     ds?: CanvasDisplaySpace;
+    selected_nodes?: Record<number | string, GraphNode>;
     onDrawForeground?: (
         ctx: CanvasRenderingContext2D,
         visibleArea?: unknown,
     ) => void;
+    onSelectionChange?: (selected: Record<number | string, GraphNode>) => void;
     __ctdDrawWrapped?: boolean;
+    __ctdSelectionChangeWrapped?: boolean;
     setDirty(foreground?: boolean, background?: boolean): void;
     createPanel(title: string, options: { closable: boolean }): PanelLike;
     centerOnNode?(node: GraphNode): void;

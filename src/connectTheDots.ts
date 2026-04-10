@@ -6,8 +6,10 @@ import { panelHostController } from "./panelHost";
 import { renderPanelView } from "./panelView";
 import type * as types from "./types";
 
-const connectTheDotsExtension = (api: types.ApiLike, app: types.AppLike) => {
-    const EXTENSION_NAME = "connect-the-dots";
+const connectTheDotsExtension = (
+    api: types.ApiLike,
+    app: types.AppLike,
+): void => {
     const MENU_LABEL = "Connect The Dots";
 
     let currentPanel: types.PanelLike | null = null;
@@ -17,7 +19,56 @@ const connectTheDotsExtension = (api: types.ApiLike, app: types.AppLike) => {
         () => app.graph,
     );
 
-    const setup = (): void => canvasPreview.setupForegroundDrawing();
+    const chainCanvasCallback = <TOwner, TArgs extends unknown[]>(
+        originalCallback:
+            | ((this: TOwner, ...args: TArgs) => unknown)
+            | undefined,
+        callback: (this: TOwner, ...args: TArgs) => void,
+    ): ((this: TOwner, ...args: TArgs) => void) => {
+        return function (this: TOwner, ...args: TArgs): void {
+            originalCallback?.call(this, ...args);
+            callback.call(this, ...args);
+        };
+    };
+
+    const getSingleSelectedNode = (
+        canvas: types.CanvasLike | undefined,
+    ): types.GraphNode | null => {
+        const selectedNodes = Object.values(canvas?.selected_nodes || {});
+        return selectedNodes.length === 1 ? selectedNodes[0] : null;
+    };
+
+    const handleSelectionChange = (): void => {
+        const panel = currentPanel ?? panelHost.findMountedPanel();
+        if (!panel || !document.body.contains(panel)) {
+            return;
+        }
+
+        const nextNode = getSingleSelectedNode(app.canvas);
+        if (!nextNode || panel.node === nextNode) {
+            return;
+        }
+
+        showPanel(nextNode);
+    };
+
+    const setupSelectionChangeSync = (): void => {
+        const canvas = app.canvas;
+        if (!canvas || canvas.__ctdSelectionChangeWrapped) {
+            return;
+        }
+
+        canvas.onSelectionChange = chainCanvasCallback(
+            canvas.onSelectionChange,
+            handleSelectionChange,
+        );
+        canvas.__ctdSelectionChangeWrapped = true;
+    };
+
+    const setup = (): void => {
+        canvasPreview.setupForegroundDrawing();
+        setupSelectionChangeSync();
+    };
 
     const getNodeMenuItems = (
         node: types.GraphNode,
@@ -198,17 +249,11 @@ const connectTheDotsExtension = (api: types.ApiLike, app: types.AppLike) => {
         startPanelGraphChangeListener(panel, targetNode);
     };
 
-    const register = (): void => {
-        app.registerExtension({
-            name: `jtreminio.${EXTENSION_NAME}`,
-            getNodeMenuItems,
-            setup,
-        });
-    };
-
-    return {
-        register,
-    };
+    app.registerExtension({
+        name: "jtreminio.connect-the-dots",
+        getNodeMenuItems,
+        setup,
+    });
 };
 
-connectTheDotsExtension(api, app).register();
+connectTheDotsExtension(api, app);
