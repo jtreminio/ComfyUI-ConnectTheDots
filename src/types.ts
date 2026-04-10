@@ -48,11 +48,17 @@ export interface GraphNode {
         targetNode: GraphNode,
         targetSlot: number,
     ): unknown;
+    disconnectInput?(slot: number | string, keepReroutes?: boolean): boolean;
     canConnectTo(
         targetNode: GraphNode,
         targetSlot: GraphSlot,
         sourceSlot: GraphSlot,
     ): boolean;
+    getConnectionPos?(
+        isInput: boolean,
+        slotNumber: number,
+        out?: [number, number],
+    ): [number, number];
 }
 
 export interface CanvasView {
@@ -98,8 +104,15 @@ export interface CandidateSelection {
     isConnected: boolean;
 }
 
+export interface PreviewLinkDescriptor {
+    originNode: GraphNode;
+    originSlot: number;
+    targetNode: GraphNode;
+    targetSlot: number;
+}
+
 export interface PanelViewCallbacks {
-    onCandidatePreviewStart(panel: PanelLike, candidateNode: GraphNode): void;
+    onCandidatePreviewStart(selection: CandidateSelection): void;
     onCandidatePreviewEnd(panel: PanelLike | null): void;
     onCandidateSelect(selection: CandidateSelection): void;
 }

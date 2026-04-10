@@ -6,16 +6,116 @@ const getGraphNodes = (
     return graph?.nodes || graph?._nodes || [];
 };
 
+const getNodeBounds = (
+    node: types.GraphNode,
+): { x: number; y: number; width: number; height: number } => {
+    const bounds = node.boundingRect || [
+        node.pos?.[0] || 0,
+        node.pos?.[1] || 0,
+        node.size?.[0] || 0,
+        node.size?.[1] || 0,
+    ];
+
+    return {
+        x: bounds[0],
+        y: bounds[1],
+        width: Math.max(bounds[2], 1),
+        height: Math.max(bounds[3], 1),
+    };
+};
+
+const getSlotPosition = (
+    node: types.GraphNode,
+    isInput: boolean,
+    slotIndex: number,
+): [number, number] => {
+    const connectionPos = node.getConnectionPos?.(isInput, slotIndex, [0, 0]);
+    if (
+        connectionPos &&
+        Number.isFinite(connectionPos[0]) &&
+        Number.isFinite(connectionPos[1])
+    ) {
+        return [connectionPos[0], connectionPos[1]];
+    }
+
+    const bounds = getNodeBounds(node);
+    return isInput
+        ? [bounds.x, bounds.y + bounds.height * 0.5]
+        : [bounds.x + bounds.width, bounds.y + bounds.height * 0.5];
+};
+
+const buildPreviewLink = (
+    selection: types.CandidateSelection,
+): types.PreviewLinkDescriptor => {
+    const { targetNode, property, mode, candidate } = selection;
+    return mode === "input"
+        ? {
+              originNode: candidate.node,
+              originSlot: candidate.slotIndex,
+              targetNode,
+              targetSlot: property.index,
+          }
+        : {
+              originNode: targetNode,
+              originSlot: property.index,
+              targetNode: candidate.node,
+              targetSlot: candidate.slotIndex,
+          };
+};
+
+const getPanelOcclusion = (
+    canvas: types.CanvasLike,
+    panel: types.PanelLike | null | undefined,
+): { left: number; right: number } => {
+    const canvasElement = canvas.canvas;
+    if (!canvasElement || !panel || !document.body.contains(panel)) {
+        return { left: 0, right: 0 };
+    }
+
+    const canvasRect = canvasElement.getBoundingClientRect();
+    const panelRect = panel.getBoundingClientRect();
+    const overlapLeft = Math.max(canvasRect.left, panelRect.left);
+    const overlapRight = Math.min(canvasRect.right, panelRect.right);
+    const overlapTop = Math.max(canvasRect.top, panelRect.top);
+    const overlapBottom = Math.min(canvasRect.bottom, panelRect.bottom);
+
+    if (overlapLeft >= overlapRight || overlapTop >= overlapBottom) {
+        return { left: 0, right: 0 };
+    }
+
+    const leftGap = overlapLeft - canvasRect.left;
+    const rightGap = canvasRect.right - overlapRight;
+    if (rightGap <= leftGap) {
+        return {
+            left: 0,
+            right: Math.max(canvasRect.right - overlapLeft, 0),
+        };
+    }
+
+    return {
+        left: Math.max(overlapRight - canvasRect.left, 0),
+        right: 0,
+    };
+};
+
 export const canvasPreviewController = (
     getCanvas: () => types.CanvasLike | undefined,
     getRootGraph: () => types.GraphLike | null | undefined,
 ) => {
     const PREVIEW_HORIZONTAL_RATIO = 0.5;
     const PREVIEW_VERTICAL_RATIO = 0.25;
+    const PREVIEW_FRAME_PADDING = 96;
+    const MIN_PREVIEW_SCALE = 0.08;
+    const PREVIEW_DASH_SPEED = 0.35;
+    const PREVIEW_DASH_LENGTH = 0.07;
+    const PREVIEW_DASH_GAP = 0.055;
+    const PREVIEW_DASH_SAMPLES = 8;
 
     let previewNode: types.GraphNode | null = null;
+    let previewLink: types.PreviewLinkDescriptor | null = null;
     let sidebarTargetNode: types.GraphNode | null = null;
     let previewFocusTimeout: number | null = null;
+    let previewAnimationFrame: number | null = null;
 
     const setupForegroundDrawing = (): void => {
         const canvas = getCanvas();
@@ -38,6 +138,41 @@ export const canvasPreviewController = (
 
         window.clearTimeout(previewFocusTimeout);
         previewFocusTimeout = null;
+    };
+
+    const stopPreviewAnimation = (): void => {
+        if (previewAnimationFrame == null) {
+            return;
+        }
+
+        window.cancelAnimationFrame(previewAnimationFrame);
+        previewAnimationFrame = null;
+    };
+
+    const startPreviewAnimation = (): void => {
+        if (previewAnimationFrame != null) {
+            return;
+        }
+
+        const tick = (): void => {
+            if (!previewLink) {
+                previewAnimationFrame = null;
+                return;
+            }
+
+            getCanvas()?.setDirty(true, true);
+            previewAnimationFrame = window.requestAnimationFrame(tick);
+        };
+
+        previewAnimationFrame = window.requestAnimationFrame(tick);
+    };
+
+    const clampScale = (scale: number): number => {
+        if (!Number.isFinite(scale) || scale <= 0) {
+            return 1;
+        }
+
+        return Math.max(scale, MIN_PREVIEW_SCALE);
     };
 
     const captureCanvasView = (): types.CanvasView => {
@@ -139,6 +274,7 @@ export const canvasPreviewController = (
     const centerOnNodeAtScale = (
         node: types.GraphNode,
         scale: number,
+        panel?: types.PanelLike | null,
     ): void => {
         const canvas = getCanvas();
         if (!canvas) {
@@ -146,47 +282,166 @@ export const canvasPreviewController = (
         }
 
         if (canvas.ds) {
-            canvas.ds.scale = scale;
+            canvas.ds.scale = clampScale(scale);
         }
 
-        if (canvas.centerOnNode) {
+        if (canvas.centerOnNode && !panel) {
             canvas.centerOnNode(node);
             return;
         }
 
-        focusNodeAtScale(node, scale);
+        focusNodeAtScale(node, scale, panel);
+    };
+
+    const focusBoundsAtScale = (
+        bounds: { x: number; y: number; width: number; height: number },
+        scale: number,
+        panel?: types.PanelLike | null,
+    ): boolean => {
+        const canvas = getCanvas();
+        if (!canvas?.ds || !canvas.canvas) {
+            return false;
+        }
+
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const canvasWidth = canvas.canvas.width;
+        const canvasHeight = canvas.canvas.height;
+        if (!canvasWidth || !canvasHeight) {
+            return false;
+        }
+
+        const nextScale = clampScale(scale);
+        const viewWidth = canvasWidth / (nextScale * devicePixelRatio);
+        const viewHeight = canvasHeight / (nextScale * devicePixelRatio);
+        const panelOcclusion = getPanelOcclusion(canvas, panel);
+        const occludedLeft = panelOcclusion.left / nextScale;
+        const occludedRight = panelOcclusion.right / nextScale;
+        const usableWidth = viewWidth - occludedLeft - occludedRight;
+        if (usableWidth <= 0) {
+            return false;
+        }
+
+        canvas.ds.scale = nextScale;
+        canvas.ds.offset[0] =
+            -bounds.x - bounds.width * 0.5 + occludedLeft + usableWidth * 0.5;
+        canvas.ds.offset[1] =
+            -bounds.y - bounds.height * 0.5 + viewHeight * 0.5;
+        return true;
+    };
+
+    const focusPreviewNodes = (
+        targetNode: types.GraphNode,
+        candidateNode: types.GraphNode,
+        baseScale: number,
+        panel?: types.PanelLike | null,
+    ): boolean => {
+        const canvas = getCanvas();
+        if (
+            !canvas?.ds ||
+            !canvas.canvas ||
+            targetNode.graph !== canvas.graph ||
+            candidateNode.graph !== canvas.graph
+        ) {
+            return false;
+        }
+
+        const targetBounds = getNodeBounds(targetNode);
+        const candidateBounds = getNodeBounds(candidateNode);
+        const minX = Math.min(targetBounds.x, candidateBounds.x);
+        const minY = Math.min(targetBounds.y, candidateBounds.y);
+        const maxX = Math.max(
+            targetBounds.x + targetBounds.width,
+            candidateBounds.x + candidateBounds.width,
+        );
+        const maxY = Math.max(
+            targetBounds.y + targetBounds.height,
+            candidateBounds.y + candidateBounds.height,
+        );
+
+        const framedBounds = {
+            x: minX - PREVIEW_FRAME_PADDING,
+            y: minY - PREVIEW_FRAME_PADDING,
+            width: maxX - minX + PREVIEW_FRAME_PADDING * 2,
+            height: maxY - minY + PREVIEW_FRAME_PADDING * 2,
+        };
+
+        const devicePixelRatio = window.devicePixelRatio || 1;
+        const canvasWidthCss = canvas.canvas.width / devicePixelRatio;
+        const canvasHeightCss = canvas.canvas.height / devicePixelRatio;
+        const panelOcclusion = getPanelOcclusion(canvas, panel);
+        const usableWidthCss =
+            canvasWidthCss - panelOcclusion.left - panelOcclusion.right;
+        if (usableWidthCss <= 0 || canvasHeightCss <= 0) {
+            return false;
+        }
+
+        const maxScaleToFit = Math.min(
+            usableWidthCss / framedBounds.width,
+            canvasHeightCss / framedBounds.height,
+        );
+
+        const nextScale =
+            Number.isFinite(maxScaleToFit) && maxScaleToFit > 0
+                ? Math.min(baseScale, maxScaleToFit)
+                : baseScale;
+
+        return focusBoundsAtScale(framedBounds, nextScale, panel);
+    };
+
+    const focusSelectionPreview = (
+        selection: types.CandidateSelection,
+        scale: number,
+    ): void => {
+        if (
+            focusPreviewNodes(
+                selection.targetNode,
+                selection.candidate.node,
+                scale,
+                selection.panel,
+            )
+        ) {
+            return;
+        }
+
+        centerOnNodeAtScale(selection.candidate.node, scale, selection.panel);
     };
 
     const queueCandidateFocus = (
-        candidateNode: types.GraphNode,
+        selection: types.CandidateSelection,
         scale: number,
+        expectedPreviewLink: types.PreviewLinkDescriptor,
     ): void => {
         clearPendingPreviewFocus();
         previewFocusTimeout = window.setTimeout(() => {
             previewFocusTimeout = null;
 
             const canvas = getCanvas();
-            if (!canvas || previewNode !== candidateNode) {
+            if (
+                !canvas ||
+                previewNode !== selection.candidate.node ||
+                previewLink !== expectedPreviewLink
+            ) {
                 return;
             }
 
-            if (canvas.graph !== candidateNode.graph) {
-                setCanvasGraph(candidateNode.graph);
+            if (canvas.graph !== selection.candidate.node.graph) {
+                setCanvasGraph(selection.candidate.node.graph);
             }
 
-            if (canvas.graph !== candidateNode.graph) {
+            if (canvas.graph !== selection.candidate.node.graph) {
                 return;
             }
 
-            centerOnNodeAtScale(candidateNode, scale);
+            focusSelectionPreview(selection, scale);
             canvas.setDirty(true, true);
         }, 0);
     };
 
     const beginCandidatePreview = (
-        panel: types.PanelLike,
-        candidateNode: types.GraphNode,
+        selection: types.CandidateSelection,
     ): void => {
+        const { panel } = selection;
+        const candidateNode = selection.candidate.node;
         const canvas = getCanvas();
         if (!panel || !candidateNode || !canvas) {
             return;
@@ -196,31 +451,36 @@ export const canvasPreviewController = (
             panel.__ctdBaseView = captureCanvasView();
         }
 
+        const nextPreviewLink = buildPreviewLink(selection);
         const hasGraphChanged = canvas.graph !== candidateNode.graph;
         if (hasGraphChanged && !setCanvasGraph(candidateNode.graph)) {
             return;
         }
 
+        setPreviewLink(nextPreviewLink);
         setPreviewNode(candidateNode);
+
         const previewScale =
             panel.__ctdBaseView?.scale ?? canvas.ds?.scale ?? 1;
         if (hasGraphChanged) {
-            queueCandidateFocus(candidateNode, previewScale);
+            queueCandidateFocus(selection, previewScale, nextPreviewLink);
             return;
         }
 
         clearPendingPreviewFocus();
-        centerOnNodeAtScale(candidateNode, previewScale);
+        focusSelectionPreview(selection, previewScale);
         canvas.setDirty(true, true);
     };
 
     const endCandidatePreview = (panel: types.PanelLike | null): void => {
+        clearPendingPreviewFocus();
+        setPreviewLink(null);
+        setPreviewNode(null);
+
         if (!panel) {
             return;
         }
 
-        clearPendingPreviewFocus();
-        setPreviewNode(null);
         if (panel.__ctdBaseView) {
             restoreCanvasView(panel.__ctdBaseView);
             panel.__ctdBaseView = null;
@@ -233,6 +493,20 @@ export const canvasPreviewController = (
         }
 
         sidebarTargetNode = node;
+        getCanvas()?.setDirty(true, true);
+    };
+
+    const setPreviewLink = (link: types.PreviewLinkDescriptor | null): void => {
+        if (previewLink === link) {
+            return;
+        }
+
+        previewLink = link;
+        if (previewLink) {
+            startPreviewAnimation();
+        } else {
+            stopPreviewAnimation();
+        }
         getCanvas()?.setDirty(true, true);
     };
 
@@ -249,6 +523,8 @@ export const canvasPreviewController = (
         ctx: CanvasRenderingContext2D,
         canvas: types.CanvasLike,
     ): void => {
+        drawPreviewLink(ctx, canvas, previewLink);
+
         drawNodeHighlight(ctx, canvas, sidebarTargetNode, {
             strokeStyle: "#d9b84f",
             fillStyle: "rgba(217, 184, 79, 0.05)",
@@ -266,6 +542,167 @@ export const canvasPreviewController = (
             radius: 10,
             shadowBlur: 18,
         });
+    };
+
+    const drawPreviewLink = (
+        ctx: CanvasRenderingContext2D,
+        canvas: types.CanvasLike,
+        link: types.PreviewLinkDescriptor | null,
+    ): void => {
+        if (
+            !link ||
+            !canvas.ds ||
+            link.originNode.graph !== canvas.graph ||
+            link.targetNode.graph !== canvas.graph
+        ) {
+            return;
+        }
+
+        const origin = getSlotPosition(link.originNode, false, link.originSlot);
+        const target = getSlotPosition(link.targetNode, true, link.targetSlot);
+        const scale = clampScale(canvas.ds.scale ?? 1);
+        const controlOffset = Math.max(
+            Math.min(Math.abs(target[0] - origin[0]) * 0.45, 220 / scale),
+            56 / scale,
+        );
+        const haloWidth = 8 / scale;
+        const lineWidth = 3 / scale;
+        const endpointRadius = 5.5 / scale;
+        const animationTime = performance.now() / 1000;
+
+        ctx.save();
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(origin[0], origin[1]);
+        ctx.bezierCurveTo(
+            origin[0] + controlOffset,
+            origin[1],
+            target[0] - controlOffset,
+            target[1],
+            target[0],
+            target[1],
+        );
+
+        ctx.strokeStyle = "rgba(123, 201, 111, 0.2)";
+        ctx.lineWidth = haloWidth;
+        ctx.stroke();
+
+        drawAnimatedPreviewDashes(
+            ctx,
+            origin,
+            target,
+            controlOffset,
+            animationTime,
+            lineWidth,
+        );
+
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(123, 201, 111, 0.96)";
+        ctx.arc(origin[0], origin[1], endpointRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = "rgba(217, 184, 79, 0.96)";
+        ctx.arc(target[0], target[1], endpointRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    };
+
+    const drawAnimatedPreviewDashes = (
+        ctx: CanvasRenderingContext2D,
+        origin: [number, number],
+        target: [number, number],
+        controlOffset: number,
+        animationTime: number,
+        lineWidth: number,
+    ): void => {
+        const dashLength = PREVIEW_DASH_LENGTH;
+        const dashStep = dashLength + PREVIEW_DASH_GAP;
+        const dashOffset =
+            (((animationTime * PREVIEW_DASH_SPEED) % dashStep) + dashStep) %
+            dashStep;
+
+        ctx.strokeStyle = "rgba(123, 201, 111, 0.96)";
+        ctx.lineWidth = lineWidth;
+
+        for (
+            let dashStart = dashOffset - dashStep;
+            dashStart < 1 + dashLength;
+            dashStart += dashStep
+        ) {
+            drawPreviewDashSegment(
+                ctx,
+                origin,
+                target,
+                controlOffset,
+                Math.max(dashStart, 0),
+                Math.min(dashStart + dashLength, 1),
+            );
+        }
+    };
+
+    const drawPreviewDashSegment = (
+        ctx: CanvasRenderingContext2D,
+        origin: [number, number],
+        target: [number, number],
+        controlOffset: number,
+        startT: number,
+        endT: number,
+    ): void => {
+        if (endT <= startT) {
+            return;
+        }
+
+        const sampleCount = Math.max(
+            2,
+            Math.ceil((endT - startT) * PREVIEW_DASH_SAMPLES * 12),
+        );
+
+        ctx.beginPath();
+        for (let index = 0; index <= sampleCount; index += 1) {
+            const t = startT + ((endT - startT) * index) / sampleCount;
+            const point = getPreviewBezierPoint(
+                origin,
+                target,
+                controlOffset,
+                t,
+            );
+            if (index === 0) {
+                ctx.moveTo(point[0], point[1]);
+            } else {
+                ctx.lineTo(point[0], point[1]);
+            }
+        }
+        ctx.stroke();
+    };
+
+    const getPreviewBezierPoint = (
+        origin: [number, number],
+        target: [number, number],
+        controlOffset: number,
+        t: number,
+    ): [number, number] => {
+        const inverseT = 1 - t;
+        const startControl: [number, number] = [
+            origin[0] + controlOffset,
+            origin[1],
+        ];
+        const endControl: [number, number] = [
+            target[0] - controlOffset,
+            target[1],
+        ];
+
+        return [
+            inverseT ** 3 * origin[0] +
+                3 * inverseT ** 2 * t * startControl[0] +
+                3 * inverseT * t ** 2 * endControl[0] +
+                t ** 3 * target[0],
+            inverseT ** 3 * origin[1] +
+                3 * inverseT ** 2 * t * startControl[1] +
+                3 * inverseT * t ** 2 * endControl[1] +
+                t ** 3 * target[1],
+        ];
     };
 
     const drawNodeHighlight = (
@@ -310,6 +747,7 @@ export const canvasPreviewController = (
     const focusNodeAtScale = (
         node: types.GraphNode,
         scale: number,
+        panel?: types.PanelLike | null,
     ): boolean => {
         const canvas = getCanvas();
         if (!canvas?.ds || !canvas.canvas) {
@@ -329,12 +767,22 @@ export const canvasPreviewController = (
             return false;
         }
 
-        const viewWidth = canvasWidth / (scale * devicePixelRatio);
-        const viewHeight = canvasHeight / (scale * devicePixelRatio);
-        const targetCenterX = viewWidth * PREVIEW_HORIZONTAL_RATIO;
+        const nextScale = clampScale(scale);
+        const viewWidth = canvasWidth / (nextScale * devicePixelRatio);
+        const viewHeight = canvasHeight / (nextScale * devicePixelRatio);
+        const panelOcclusion = getPanelOcclusion(canvas, panel);
+        const occludedLeft = panelOcclusion.left / nextScale;
+        const occludedRight = panelOcclusion.right / nextScale;
+        const usableWidth = viewWidth - occludedLeft - occludedRight;
+        if (usableWidth <= 0) {
+            return false;
+        }
+
+        const targetCenterX =
+            occludedLeft + usableWidth * PREVIEW_HORIZONTAL_RATIO;
         const targetTopY = viewHeight * PREVIEW_VERTICAL_RATIO;
 
-        canvas.ds.scale = scale;
+        canvas.ds.scale = nextScale;
         canvas.ds.offset[0] = -bounds[0] - bounds[2] * 0.5 + targetCenterX;
         canvas.ds.offset[1] = -bounds[1] + targetTopY;
         return true;

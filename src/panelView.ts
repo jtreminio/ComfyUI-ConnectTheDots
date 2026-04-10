@@ -86,6 +86,14 @@ const createCandidateButton = ({
 }: CandidateButtonOptions): HTMLDivElement => {
     const shell = document.createElement("div");
     shell.className = "ctd-candidate-shell";
+    const selection: types.CandidateSelection = {
+        panel,
+        targetNode,
+        property,
+        mode,
+        candidate,
+        isConnected,
+    };
 
     const gutter = document.createElement("div");
     gutter.className = "ctd-candidate-gutter";
@@ -110,20 +118,13 @@ const createCandidateButton = ({
     }
 
     button.addEventListener("mouseenter", () =>
-        callbacks.onCandidatePreviewStart(panel, candidate.node),
+        callbacks.onCandidatePreviewStart(selection),
     );
     button.addEventListener("mouseleave", () =>
         callbacks.onCandidatePreviewEnd(panel),
     );
     button.addEventListener("click", () =>
-        callbacks.onCandidateSelect({
-            panel,
-            targetNode,
-            property,
-            mode,
-            candidate,
-            isConnected,
-        }),
+        callbacks.onCandidateSelect(selection),
     );
 
     shell.append(gutter, button);
@@ -319,7 +320,7 @@ export const renderPanelView = ({
         <div class="ctd-title">${getCachedNodeDisplayName(renderCache, targetNode)}</div>
         <div class="ctd-subtitle">${targetNode.type || "unknown node type"}</div>
         <div class="ctd-help">
-            Hover any candidate property to jump the canvas there.
+            Hover any candidate property to preview the connection on the canvas.
             Moving away or selecting it restores your original view. Keep connecting until you close the sidebar.
         </div>
     `;

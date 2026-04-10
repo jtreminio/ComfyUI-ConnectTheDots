@@ -103,11 +103,8 @@ const connectTheDotsExtension = (
             targetNode,
             title: MENU_LABEL,
             callbacks: {
-                onCandidatePreviewStart: (nextPanel, candidateNode) =>
-                    canvasPreview.beginCandidatePreview(
-                        nextPanel,
-                        candidateNode,
-                    ),
+                onCandidatePreviewStart: (selection) =>
+                    canvasPreview.beginCandidatePreview(selection),
                 onCandidatePreviewEnd: (nextPanel) =>
                     canvasPreview.endCandidatePreview(nextPanel),
                 onCandidateSelect: (selection) =>
@@ -128,6 +125,23 @@ const connectTheDotsExtension = (
     }: types.CandidateSelection): void => {
         if (isConnected) {
             canvasPreview.endCandidatePreview(panel);
+            const didDisconnect =
+                mode === "input"
+                    ? targetNode.disconnectInput?.(property.index)
+                    : candidate.node.disconnectInput?.(candidate.slotIndex);
+
+            if (!didDisconnect) {
+                setPanelStatus(
+                    panel,
+                    "ComfyUI rejected that disconnection.",
+                    "error",
+                );
+                renderPanel(panel, targetNode);
+                return;
+            }
+
+            setPanelStatus(panel, null);
+            renderPanel(panel, targetNode);
             return;
         }
 
