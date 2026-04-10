@@ -94,6 +94,20 @@ const connectTheDotsExtension = (
         panel.__ctdStatus = message ? { message, state } : null;
     };
 
+    const clearPanelConnectionFlash = (panel: types.PanelLike | null): void => {
+        if (!panel) {
+            return;
+        }
+
+        panel.__ctdConnectionFlashActive = false;
+        if (panel.__ctdConnectionFlashTimeout == null) {
+            return;
+        }
+
+        window.clearTimeout(panel.__ctdConnectionFlashTimeout);
+        panel.__ctdConnectionFlashTimeout = null;
+    };
+
     const renderPanel = (
         panel: types.PanelLike,
         targetNode: types.GraphNode,
@@ -115,14 +129,14 @@ const connectTheDotsExtension = (
         panel.__ctdConnectionSignature = getNodeConnectionSignature(targetNode);
     };
 
-    const handleCandidateSelect = ({
-        panel,
-        targetNode,
-        property,
-        mode,
-        candidate,
-        isConnected,
-    }: types.CandidateSelection): void => {
+    const handleCandidateSelect = (
+        selection: types.CandidateSelection,
+    ): void => {
+        const { panel, targetNode, property, mode, candidate, isConnected } =
+            selection;
+
+        clearPanelConnectionFlash(panel);
+
         if (isConnected) {
             canvasPreview.endCandidatePreview(panel);
             const didDisconnect =
@@ -145,8 +159,9 @@ const connectTheDotsExtension = (
             return;
         }
 
-        const baseView =
+        panel.__ctdBaseView =
             panel.__ctdBaseView || canvasPreview.captureCanvasView();
+        panel.__ctdConnectionFlashActive = true;
         const link =
             mode === "input"
                 ? candidate.node.connect(
@@ -159,17 +174,23 @@ const connectTheDotsExtension = (
                       candidate.node,
                       candidate.slotIndex,
                   );
-        canvasPreview.restoreCanvasView(baseView);
-        panel.__ctdBaseView = null;
 
         if (!link) {
+            clearPanelConnectionFlash(panel);
+            canvasPreview.endCandidatePreview(panel);
             setPanelStatus(panel, "ComfyUI rejected that connection.", "error");
             renderPanel(panel, targetNode);
             return;
         }
 
-        setPanelStatus(panel, null);
-        renderPanel(panel, targetNode);
+        canvasPreview.confirmCandidateSelection(selection);
+        panel.__ctdConnectionFlashTimeout = window.setTimeout(() => {
+            panel.__ctdConnectionFlashTimeout = null;
+            panel.__ctdConnectionFlashActive = false;
+            canvasPreview.endCandidatePreview(panel);
+            setPanelStatus(panel, null);
+            renderPanel(panel, targetNode);
+        }, 250);
     };
 
     const stopPanelGraphChangeListener = (
@@ -179,6 +200,7 @@ const connectTheDotsExtension = (
             return;
         }
 
+        clearPanelConnectionFlash(panel);
         api.removeEventListener("graphChanged", panel.__ctdGraphChangedHandler);
         panel.__ctdGraphChangedHandler = null;
     };
@@ -198,6 +220,10 @@ const connectTheDotsExtension = (
 
             if (!document.body.contains(panel)) {
                 stopPanelGraphChangeListener(panel);
+                return;
+            }
+
+            if (panel.__ctdConnectionFlashActive) {
                 return;
             }
 

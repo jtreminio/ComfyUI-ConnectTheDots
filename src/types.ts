@@ -134,6 +134,8 @@ export interface PanelLike extends HTMLElement {
     __ctdStatus?: PanelStatus | null;
     __ctdGraphChangedHandler?: EventListener | null;
     __ctdConnectionSignature?: string;
+    __ctdConnectionFlashActive?: boolean;
+    __ctdConnectionFlashTimeout?: number | null;
     __ctdHostObserver?: ResizeObserver | null;
 }
 

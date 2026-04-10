@@ -46,7 +46,11 @@ const getSlotPosition = (
 
 const buildPreviewLink = (
     selection: types.CandidateSelection,
-): types.PreviewLinkDescriptor => {
+): types.PreviewLinkDescriptor | null => {
+    if (selection.isConnected) {
+        return null;
+    }
+
     const { targetNode, property, mode, candidate } = selection;
     return mode === "input"
         ? {
@@ -110,12 +114,14 @@ export const canvasPreviewController = (
     const PREVIEW_DASH_LENGTH = 0.07;
     const PREVIEW_DASH_GAP = 0.055;
     const PREVIEW_DASH_SAMPLES = 8;
+    const CONNECTION_FLASH_DURATION_MS = 250;
 
     let previewNode: types.GraphNode | null = null;
     let previewLink: types.PreviewLinkDescriptor | null = null;
     let sidebarTargetNode: types.GraphNode | null = null;
     let previewFocusTimeout: number | null = null;
     let previewAnimationFrame: number | null = null;
+    let previewConfirmationExpiresAt = 0;
 
     const setupForegroundDrawing = (): void => {
         const canvas = getCanvas();
@@ -138,6 +144,15 @@ export const canvasPreviewController = (
 
         window.clearTimeout(previewFocusTimeout);
         previewFocusTimeout = null;
+    };
+
+    const clearPreviewConfirmation = (): void => {
+        if (previewConfirmationExpiresAt === 0) {
+            return;
+        }
+
+        previewConfirmationExpiresAt = 0;
+        getCanvas()?.setDirty(true, true);
     };
 
     const stopPreviewAnimation = (): void => {
@@ -409,7 +424,7 @@ export const canvasPreviewController = (
     const queueCandidateFocus = (
         selection: types.CandidateSelection,
         scale: number,
-        expectedPreviewLink: types.PreviewLinkDescriptor,
+        expectedPreviewLink: types.PreviewLinkDescriptor | null,
     ): void => {
         clearPendingPreviewFocus();
         previewFocusTimeout = window.setTimeout(() => {
@@ -472,8 +487,18 @@ export const canvasPreviewController = (
         canvas.setDirty(true, true);
     };
 
+    const confirmCandidateSelection = (
+        selection: types.CandidateSelection,
+    ): void => {
+        beginCandidatePreview(selection);
+        previewConfirmationExpiresAt =
+            performance.now() + CONNECTION_FLASH_DURATION_MS;
+        getCanvas()?.setDirty(true, true);
+    };
+
     const endCandidatePreview = (panel: types.PanelLike | null): void => {
         clearPendingPreviewFocus();
+        clearPreviewConfirmation();
         setPreviewLink(null);
         setPreviewNode(null);
 
@@ -569,20 +594,42 @@ export const canvasPreviewController = (
         const lineWidth = 3 / scale;
         const endpointRadius = 5.5 / scale;
         const animationTime = performance.now() / 1000;
+        const isConfirmationActive =
+            previewConfirmationExpiresAt > performance.now();
 
         ctx.save();
         ctx.lineCap = "round";
         ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(origin[0], origin[1]);
-        ctx.bezierCurveTo(
-            origin[0] + controlOffset,
-            origin[1],
-            target[0] - controlOffset,
-            target[1],
-            target[0],
-            target[1],
-        );
+        tracePreviewLinkPath(ctx, origin, target, controlOffset);
+
+        if (isConfirmationActive) {
+            ctx.strokeStyle = "rgba(123, 201, 111, 0.28)";
+            ctx.lineWidth = 14 / scale;
+            ctx.shadowColor = "rgba(123, 201, 111, 0.95)";
+            ctx.shadowBlur = 26 / scale;
+            ctx.stroke();
+
+            tracePreviewLinkPath(ctx, origin, target, controlOffset);
+            ctx.strokeStyle = "rgba(215, 255, 206, 0.96)";
+            ctx.lineWidth = 4 / scale;
+            ctx.shadowBlur = 0;
+            ctx.stroke();
+
+            drawPreviewEndpoint(
+                ctx,
+                origin,
+                6.5 / scale,
+                "rgba(123, 201, 111, 1)",
+            );
+            drawPreviewEndpoint(
+                ctx,
+                target,
+                6.5 / scale,
+                "rgba(217, 184, 79, 1)",
+            );
+            ctx.restore();
+            return;
+        }
 
         ctx.strokeStyle = "rgba(123, 201, 111, 0.2)";
         ctx.lineWidth = haloWidth;
@@ -597,16 +644,49 @@ export const canvasPreviewController = (
             lineWidth,
         );
 
-        ctx.beginPath();
-        ctx.fillStyle = "rgba(123, 201, 111, 0.96)";
-        ctx.arc(origin[0], origin[1], endpointRadius, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.beginPath();
-        ctx.fillStyle = "rgba(217, 184, 79, 0.96)";
-        ctx.arc(target[0], target[1], endpointRadius, 0, Math.PI * 2);
-        ctx.fill();
+        drawPreviewEndpoint(
+            ctx,
+            origin,
+            endpointRadius,
+            "rgba(123, 201, 111, 0.96)",
+        );
+        drawPreviewEndpoint(
+            ctx,
+            target,
+            endpointRadius,
+            "rgba(217, 184, 79, 0.96)",
+        );
         ctx.restore();
+    };
+
+    const tracePreviewLinkPath = (
+        ctx: CanvasRenderingContext2D,
+        origin: [number, number],
+        target: [number, number],
+        controlOffset: number,
+    ): void => {
+        ctx.beginPath();
+        ctx.moveTo(origin[0], origin[1]);
+        ctx.bezierCurveTo(
+            origin[0] + controlOffset,
+            origin[1],
+            target[0] - controlOffset,
+            target[1],
+            target[0],
+            target[1],
+        );
+    };
+
+    const drawPreviewEndpoint = (
+        ctx: CanvasRenderingContext2D,
+        point: [number, number],
+        radius: number,
+        fillStyle: string,
+    ): void => {
+        ctx.beginPath();
+        ctx.fillStyle = fillStyle;
+        ctx.arc(point[0], point[1], radius, 0, Math.PI * 2);
+        ctx.fill();
     };
 
     const drawAnimatedPreviewDashes = (
@@ -793,6 +873,7 @@ export const canvasPreviewController = (
         captureCanvasView,
         restoreCanvasView,
         beginCandidatePreview,
+        confirmCandidateSelection,
         endCandidatePreview,
         setSidebarTargetNode,
     };
