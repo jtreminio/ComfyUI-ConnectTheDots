@@ -358,6 +358,21 @@ export const canvasPreviewController = (
         };
     };
 
+    const getPreviewTargetTopY = (viewHeight: number): number => {
+        return viewHeight * PREVIEW_VERTICAL_RATIO;
+    };
+
+    const getPreviewTopAlignedOffsetY = (
+        bounds: { y: number; height: number },
+        viewHeight: number,
+    ): number => {
+        const targetTopY = Math.min(
+            getPreviewTargetTopY(viewHeight),
+            Math.max(viewHeight - bounds.height, 0),
+        );
+        return -bounds.y + targetTopY;
+    };
+
     const focusBoundsAtScale = (
         bounds: { x: number; y: number; width: number; height: number },
         scale: number,
@@ -374,8 +389,10 @@ export const canvasPreviewController = (
             bounds.width * 0.5 +
             metrics.occludedLeft +
             metrics.usableWidth * 0.5;
-        metrics.ds.offset[1] =
-            -bounds.y - bounds.height * 0.5 + metrics.viewHeight * 0.5;
+        metrics.ds.offset[1] = getPreviewTopAlignedOffsetY(
+            bounds,
+            metrics.viewHeight,
+        );
         return true;
     };
 
@@ -392,16 +409,14 @@ export const canvasPreviewController = (
 
         const bounds = getNodeBounds(node);
         const centerX = bounds.x + bounds.width * 0.5;
-        const centerY = bounds.y + bounds.height * 0.5;
         let offsetX =
             -centerX + metrics.occludedLeft + metrics.usableWidth * 0.5;
-        let offsetY = -centerY + metrics.viewHeight * 0.5;
+        let offsetY = getPreviewTopAlignedOffsetY(bounds, metrics.viewHeight);
 
         if (baseView) {
             const baseScale = clampScale(baseView.scale);
             const scaleRatio = baseScale / metrics.nextScale;
             offsetX = (centerX + baseView.offset[0]) * scaleRatio - centerX;
-            offsetY = (centerY + baseView.offset[1]) * scaleRatio - centerY;
         }
 
         const horizontalPadding =
@@ -532,12 +547,14 @@ export const canvasPreviewController = (
         }
 
         const fallbackScale = Math.max(scale, MIN_PREVIEW_FIT_SCALE);
-        const currentView = captureCanvasView();
-        const baseView =
-            !currentView.graph ||
-            currentView.graph === selection.candidate.node.graph
-                ? currentView
-                : null;
+        const savedView = selection.panel.__ctdBaseView;
+        let baseView: types.CanvasView | null = null;
+        if (
+            !savedView?.graph ||
+            savedView.graph === selection.candidate.node.graph
+        ) {
+            baseView = savedView ?? null;
+        }
 
         if (
             keepNodeVisibleAtScale(
@@ -985,11 +1002,13 @@ export const canvasPreviewController = (
         const targetCenterX =
             metrics.occludedLeft +
             metrics.usableWidth * PREVIEW_HORIZONTAL_RATIO;
-        const targetTopY = metrics.viewHeight * PREVIEW_VERTICAL_RATIO;
 
         metrics.ds.scale = metrics.nextScale;
         metrics.ds.offset[0] = -bounds.x - bounds.width * 0.5 + targetCenterX;
-        metrics.ds.offset[1] = -bounds.y + targetTopY;
+        metrics.ds.offset[1] = getPreviewTopAlignedOffsetY(
+            bounds,
+            metrics.viewHeight,
+        );
         return true;
     };
 

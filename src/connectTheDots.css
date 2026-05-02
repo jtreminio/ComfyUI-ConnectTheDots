@@ -128,9 +128,74 @@
     gap: 10px;
 }
 
+#connect-the-dots-panel .ctd-slot-title {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-width: 0;
+}
+
+#connect-the-dots-panel .ctd-slot-toggle {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--ctd-text);
+    cursor: pointer;
+    appearance: none;
+    font: inherit;
+    text-align: left;
+    padding: 0;
+}
+
+#connect-the-dots-panel .ctd-slot-toggle-icon {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: 1px solid var(--ctd-border);
+    border-radius: 5px;
+    color: var(--ctd-text-muted);
+}
+
+#connect-the-dots-panel .ctd-slot-toggle-icon::before {
+    content: "";
+    width: 0;
+    height: 0;
+    border-top: 4px solid transparent;
+    border-bottom: 4px solid transparent;
+    border-left: 5px solid currentColor;
+    transform-origin: 45% 50%;
+}
+
+#connect-the-dots-panel
+    .ctd-slot-toggle[aria-expanded="true"]
+    .ctd-slot-toggle-icon::before {
+    transform: rotate(90deg);
+}
+
+#connect-the-dots-panel .ctd-slot-toggle:hover,
+#connect-the-dots-panel .ctd-slot-toggle:focus {
+    color: var(--ctd-text);
+    outline: none;
+}
+
+#connect-the-dots-panel .ctd-slot-toggle:hover .ctd-slot-toggle-icon,
+#connect-the-dots-panel .ctd-slot-toggle:focus .ctd-slot-toggle-icon {
+    border-color: var(--ctd-accent-border);
+    background: var(--ctd-accent-bg);
+    color: var(--ctd-text);
+}
+
 #connect-the-dots-panel .ctd-slot-meta {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 8px;
     flex-wrap: wrap;
     justify-content: flex-end;
@@ -171,6 +236,11 @@
     margin-top: 10px;
 }
 
+#connect-the-dots-panel .ctd-slot-card.ctd-is-collapsed .ctd-slot-state,
+#connect-the-dots-panel .ctd-slot-card.ctd-is-collapsed .ctd-candidate-list {
+    display: none;
+}
+
 #connect-the-dots-panel .ctd-candidate-shell {
     display: flex;
     align-items: stretch;
@@ -180,9 +250,10 @@
 #connect-the-dots-panel .ctd-candidate-gutter {
     flex: 0 0 18px;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
     align-self: stretch;
+    padding-top: 13px;
 }
 
 #connect-the-dots-panel .ctd-candidate {

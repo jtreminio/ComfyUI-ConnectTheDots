@@ -38,6 +38,14 @@ const getCandidateKey = (
     return `${nodeId}:${slotIndex}`;
 };
 
+const getCandidateListId = (
+    nodeId: number | string,
+    mode: types.SlotDirection,
+    propertyIndex: number,
+): string => {
+    return `ctd-${mode}-${String(nodeId).replace(/[^a-zA-Z0-9_-]/g, "-")}-${propertyIndex}-candidates`;
+};
+
 const buildConnectedCandidateKeys = (
     graph: types.GraphLike | null | undefined,
     property: types.PropertyDescriptor,
@@ -71,6 +79,35 @@ const buildCandidateRow = (label: string, value: string, tone = ""): string => {
         <span class="ctd-candidate-row">
             <span class="ctd-candidate-label">${label}</span>
             <span class="ctd-candidate-value"${tone ? ` data-tone="${tone}"` : ""}>${value}</span>
+        </span>
+    `;
+};
+
+const buildSlotTitle = (
+    name: string,
+    candidateListId: string,
+    isCollapsible: boolean,
+): string => {
+    if (!isCollapsible) {
+        return html`
+            <span class="ctd-slot-title">
+                <span class="ctd-slot-name">${name}</span>
+            </span>
+        `;
+    }
+
+    return html`
+        <span class="ctd-slot-title">
+            <button
+                type="button"
+                class="ctd-slot-toggle"
+                aria-expanded="true"
+                aria-controls="${candidateListId}"
+                aria-label="Collapse ${name}"
+            >
+                <span class="ctd-slot-toggle-icon" aria-hidden="true"></span>
+                <span class="ctd-slot-name">${name}</span>
+            </button>
         </span>
     `;
 };
@@ -145,6 +182,7 @@ const createPropertyCard = (
     const stateLines: string[] = [];
     const candidateList = document.createElement("div");
     candidateList.className = "ctd-candidate-list";
+    candidateList.id = getCandidateListId(targetNode.id, mode, property.index);
     const connectedCandidateKeys = buildConnectedCandidateKeys(
         targetNode.graph,
         property,
@@ -188,10 +226,16 @@ const createPropertyCard = (
                 : "Currently unconnected",
         );
     }
+    const hasCompatibleTargets = candidates.length > 0;
+    const slotTitle = buildSlotTitle(
+        property.name,
+        candidateList.id,
+        hasCompatibleTargets,
+    );
 
     card.innerHTML = html`
         <div class="ctd-slot-head">
-            <span class="ctd-slot-name">${property.name}</span>
+            $${slotTitle}
             <span class="ctd-slot-meta">
                 $${propertyPillText ? html`<span class="ctd-connection-pill">${propertyPillText}</span>` : ""}
                 <span class="ctd-slot-type">${getCachedTypeDisplay(renderCache, property.slot.type)}</span>
@@ -199,6 +243,22 @@ const createPropertyCard = (
         </div>
         $${stateLines.length ? html`<div class="ctd-slot-state">${stateLines.join(" ")}</div>` : ""}
     `;
+
+    const toggle = card.querySelector<HTMLButtonElement>(".ctd-slot-toggle");
+    const slotState = card.querySelector<HTMLDivElement>(".ctd-slot-state");
+    toggle?.addEventListener("click", () => {
+        const shouldExpand = toggle.getAttribute("aria-expanded") !== "true";
+        toggle.setAttribute("aria-expanded", String(shouldExpand));
+        toggle.setAttribute(
+            "aria-label",
+            `${shouldExpand ? "Collapse" : "Expand"} ${property.name}`,
+        );
+        card.classList.toggle("ctd-is-collapsed", !shouldExpand);
+        candidateList.hidden = !shouldExpand;
+        if (slotState) {
+            slotState.hidden = !shouldExpand;
+        }
+    });
 
     if (candidates.length) {
         if (mode !== "input") {
